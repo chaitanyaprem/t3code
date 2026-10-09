@@ -118,8 +118,16 @@ build() {
 }
 
 app_is_running() {
-  # Fixed-string match: the bundle name has parentheses. Covers helpers too.
-  ps -axo command= | grep -F -- "$INSTALLED_APP/Contents/" >/dev/null
+  # Only a command that starts with the bundle path counts, helpers included.
+  # A plain substring match also hits any shell or grep that merely mentions
+  # the path in its arguments.
+  local command
+  while IFS= read -r command; do
+    if [[ "$command" == "$INSTALLED_APP/Contents/"* ]]; then
+      return 0
+    fi
+  done < <(ps -axo command=)
+  return 1
 }
 
 install() {
