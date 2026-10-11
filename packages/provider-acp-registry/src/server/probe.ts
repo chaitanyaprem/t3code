@@ -37,7 +37,7 @@ import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 
 const MAX_AUTH_METHODS = 32;
-const MAX_MODELS = 256;
+const MAX_MODELS = 1_024;
 const MAX_ID_LENGTH = 128;
 const MAX_NAME_LENGTH = 160;
 const MAX_DESCRIPTION_LENGTH = 1_024;
