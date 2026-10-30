@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds the desktop app from this checkout and installs it over
-# /Applications/T3 Code (Alpha).app, which runs on the live ~/.t3/userdata.
+# Builds the desktop app from this checkout and installs it over the one in
+# /Applications, which runs on the live ~/.t3/userdata.
 #
 #   scripts/install-custom-desktop.sh                 build, then install
 #   scripts/install-custom-desktop.sh --build-only    build and print the app path
@@ -12,15 +12,19 @@
 # ad-hoc signs the new one.
 set -euo pipefail
 
-APP_NAME="T3 Code (Alpha).app"
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$repo_root"
+
+PRODUCT_NAME="$(node -p "require('./apps/desktop/package.json').productName")"
+APP_NAME="$PRODUCT_NAME.app"
 INSTALLED_APP="/Applications/$APP_NAME"
+# Earlier product names. Their bundles are replaced too, and one may still be
+# the app that last ran the database.
+PREVIOUS_APPS=("/Applications/T3 Code (Alpha).app")
 USERDATA="$HOME/.t3/userdata"
 # Written into the bundle so the next run can refuse to install a build that
 # lacks the commit the installed app last ran the database with.
 COMMIT_MARKER="Contents/Resources/t3code-custom-commit"
-
-repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$repo_root"
 
 mode="all"
 built_app=""
@@ -73,9 +77,14 @@ build() {
   fi
   # Database migrations come from upstream, and rebasing rewrites the custom
   # commits, so compare the upstream commit each build sits on.
-  local installed_commit installed_base
-  if [ -f "$INSTALLED_APP/$COMMIT_MARKER" ]; then
-    installed_commit="$(cat "$INSTALLED_APP/$COMMIT_MARKER")"
+  local installed_commit installed_base app
+  for app in "$INSTALLED_APP" "${PREVIOUS_APPS[@]}"; do
+    if [ -f "$app/$COMMIT_MARKER" ]; then
+      installed_commit="$(cat "$app/$COMMIT_MARKER")"
+      break
+    fi
+  done
+  if [ -n "${installed_commit:-}" ]; then
     if ! installed_base="$(git merge-base "$installed_commit" upstream/main)"; then
       echo "Cannot find $installed_commit, the installed app's commit, relative to upstream/main. Run git fetch upstream." >&2
       exit 1
@@ -127,11 +136,13 @@ app_is_running() {
   # Only a command that starts with the bundle path counts, helpers included.
   # A plain substring match also hits any shell or grep that merely mentions
   # the path in its arguments.
-  local command
+  local command app
   while IFS= read -r command; do
-    if [[ "$command" == "$INSTALLED_APP/Contents/"* ]]; then
-      return 0
-    fi
+    for app in "$INSTALLED_APP" "${PREVIOUS_APPS[@]}"; do
+      if [[ "$command" == "$app/Contents/"* ]]; then
+        return 0
+      fi
+    done
   done < <(ps -axo command=)
   return 1
 }
@@ -143,11 +154,11 @@ install() {
   fi
   while app_is_running; do
     if [ ! -t 0 ]; then
-      echo "T3 Code (Alpha) is running. Quit it, then run:" >&2
+      echo "$PRODUCT_NAME is running. Quit it, then run:" >&2
       echo "  scripts/install-custom-desktop.sh --install \"$built_app\"" >&2
       exit 2
     fi
-    read -r -p "T3 Code (Alpha) is running. Quit it, then press Enter. " _
+    read -r -p "$PRODUCT_NAME is running. Quit it, then press Enter. " _
   done
 
   local stamp
@@ -157,9 +168,12 @@ install() {
     cp -Rp "$USERDATA" "$backup"
     echo "Backed up userdata to $backup" >&2
   fi
-  if [ -e "$INSTALLED_APP" ]; then
-    mv "$INSTALLED_APP" "$HOME/.Trash/${APP_NAME%.app} $stamp.app"
-  fi
+  local app
+  for app in "$INSTALLED_APP" "${PREVIOUS_APPS[@]}"; do
+    if [ -e "$app" ]; then
+      mv "$app" "$HOME/.Trash/$(basename "$app" .app) $stamp.app"
+    fi
+  done
   ditto "$built_app" "$INSTALLED_APP"
   # Without the ad-hoc signature the app will not launch on Apple Silicon.
   codesign --force --deep --sign - "$INSTALLED_APP"
