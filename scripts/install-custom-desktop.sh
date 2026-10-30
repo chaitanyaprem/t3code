@@ -71,12 +71,18 @@ build() {
     echo "Tracked files have uncommitted changes. Commit them first: the installed app records HEAD as its commit." >&2
     exit 1
   fi
-  local installed_commit=""
+  # Database migrations come from upstream, and rebasing rewrites the custom
+  # commits, so compare the upstream commit each build sits on.
+  local installed_commit installed_base
   if [ -f "$INSTALLED_APP/$COMMIT_MARKER" ]; then
     installed_commit="$(cat "$INSTALLED_APP/$COMMIT_MARKER")"
-    if ! git merge-base --is-ancestor "$installed_commit" HEAD; then
-      echo "HEAD does not contain $installed_commit, the commit of the installed app." >&2
-      echo "Installing this build could run older code on a newer database. Rebase or merge first." >&2
+    if ! installed_base="$(git merge-base "$installed_commit" upstream/main)"; then
+      echo "Cannot find $installed_commit, the installed app's commit, relative to upstream/main. Run git fetch upstream." >&2
+      exit 1
+    fi
+    if ! git merge-base --is-ancestor "$installed_base" HEAD; then
+      echo "HEAD is based on older upstream code than the installed app ($installed_base)." >&2
+      echo "Installing this build could run older code on a newer database. Rebase onto upstream/main first." >&2
       exit 1
     fi
   fi
