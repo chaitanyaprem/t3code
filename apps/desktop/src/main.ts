@@ -12,8 +12,10 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 
 import * as Electron from "electron";
 
@@ -116,11 +118,28 @@ const resolveDesktopSshCliRunner = (
   return { archiveVersion: environment.appVersion };
 };
 
+// A local build's version has no published archive. scripts/install-custom-desktop.sh records the
+// upstream release it is based on here, so SSH hosts download that release instead.
+const REMOTE_RUNTIME_VERSION_FILE = "t3code-remote-runtime-version";
+
 const layerDesktopSshEnvironment = Layer.unwrap(
   Effect.gen(function* () {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const remoteRuntimeVersion = yield* fileSystem
+      .readFileString(path.join(environment.resourcesPath, REMOTE_RUNTIME_VERSION_FILE))
+      .pipe(
+        Effect.map((contents) => contents.trim()),
+        Effect.orElseSucceed(() => ""),
+      );
+    const runner = resolveDesktopSshCliRunner(environment);
     return DesktopSshEnvironment.layer({
-      resolveCliRunner: Effect.succeed(resolveDesktopSshCliRunner(environment)),
+      resolveCliRunner: Effect.succeed(
+        remoteRuntimeVersion !== "" && runner.archiveVersion !== undefined
+          ? { archiveVersion: remoteRuntimeVersion }
+          : runner,
+      ),
     });
   }),
 );

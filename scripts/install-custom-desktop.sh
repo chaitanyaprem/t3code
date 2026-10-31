@@ -25,6 +25,9 @@ USERDATA="$HOME/.t3/userdata"
 # Written into the bundle so the next run can refuse to install a build that
 # lacks the commit the installed app last ran the database with.
 COMMIT_MARKER="Contents/Resources/t3code-custom-commit"
+# Read by apps/desktop/src/main.ts. SSH hosts download this upstream release,
+# since this build's own version was never published.
+REMOTE_RUNTIME_MARKER="Contents/Resources/t3code-remote-runtime-version"
 
 mode="all"
 built_app=""
@@ -70,6 +73,26 @@ default_build_version() {
   echo "$base-preview.$today.$run"
 }
 
+# The published upstream release nearest below HEAD. The remote server then
+# never runs newer code than this build's client, and only lags its base.
+remote_runtime_version() {
+  local base tag best="" best_distance="" distance
+  base="$(git merge-base HEAD upstream/main)"
+  while IFS= read -r tag; do
+    git merge-base --is-ancestor "$tag" "$base" 2>/dev/null || continue
+    distance="$(git rev-list --count "$tag..$base")"
+    if [ -z "$best_distance" ] || [ "$distance" -lt "$best_distance" ]; then
+      best="${tag#v}"
+      best_distance="$distance"
+    fi
+  done < <(gh release list -R pingdotgg/t3code -L 30 --exclude-drafts --json tagName -q '.[].tagName')
+  if [ -z "$best" ]; then
+    echo "No published upstream release is contained in HEAD. Run git fetch upstream --tags." >&2
+    exit 1
+  fi
+  echo "$best"
+}
+
 build() {
   if ! git diff --quiet HEAD; then
     echo "Tracked files have uncommitted changes. Commit them first: the installed app records HEAD as its commit." >&2
@@ -104,6 +127,9 @@ build() {
     exit 64
   fi
 
+  local remote_version
+  remote_version="$(remote_runtime_version)"
+
   export PATH="$HOME/.local/share/vite-plus/bin:$PATH"
   # The native resource monitor needs Rust 1.95.
   export RUSTUP_TOOLCHAIN=1.95.0
@@ -129,7 +155,8 @@ build() {
     exit 1
   fi
   git rev-parse HEAD >"$built_app/$COMMIT_MARKER"
-  echo "Built: $built_app" >&2
+  echo "$remote_version" >"$built_app/$REMOTE_RUNTIME_MARKER"
+  echo "Built: $built_app (SSH hosts run t3 $remote_version)" >&2
 }
 
 app_is_running() {
