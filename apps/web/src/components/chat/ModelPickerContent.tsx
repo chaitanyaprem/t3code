@@ -11,6 +11,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { formatProviderUpdateRequiredNotice } from "@t3tools/client-runtime/providerUpdateRequiredModels";
 import { useNavigate } from "@tanstack/react-router";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import { ChevronRightIcon } from "lucide-react";
 import {
   memo,
   useState,
